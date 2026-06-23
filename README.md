@@ -52,7 +52,7 @@ Then open:
 
 ---
 
-## 📱 Phone as Camera (from PDF Slide 5–6)
+## 📱 Phone as Camera ()
 
 1. Connect phone and laptop to the **same WiFi**
 2. Run `python app.py`
@@ -67,7 +67,7 @@ This replicates the exact architecture from the PDF:
 
 ## 🧠 Model: BlazePose (MediaPipe)
 
-**Why BlazePose over OpenPose?** (PDF Slide 34)
+**Why BlazePose over OpenPose?** 
 
 | Model | FPS | Yoga PCK@0.2 | Target Hardware |
 |-------|-----|--------------|-----------------|
@@ -77,7 +77,7 @@ This replicates the exact architecture from the PDF:
 
 BlazePose is **more accurate on fitness movements AND 25× faster** on mobile hardware. Perfect for our use case.
 
-### BlazePose Architecture (PDF Slide 35–36)
+### BlazePose Architecture 
 
 ```
 Input RGB Image (256×256)
@@ -98,7 +98,7 @@ Input RGB Image (256×256)
 
 The model outputs **33 keypoints** (vs OpenPose's 18), including finger joints and feet, giving finer-grained angle computation.
 
-### Our Pipeline (PDF Slide 8)
+### Our Pipeline 
 
 ```
 Camera Frame
@@ -112,7 +112,7 @@ Camera Frame
 
 ---
 
-## 📐 Joint Angles (PDF Slide 40–41)
+## 📐 Joint Angles 
 
 Pose matching works by comparing **observed joint angles** to **stored ideal angles** for each exercise. This is exactly how Google ML Kit classifies poses (slide 41 — "Breaking a pose into angles").
 
@@ -137,7 +137,7 @@ For each joint angle θ at keypoint B between points A-B-C:
 
 ---
 
-## 🔢 Rep Counter FSM (PDF Slide 42)
+## 🔢 Rep Counter FSM 
 
 ```
 WAITING ──(angle ≥ down_threshold)──► DOWN
@@ -153,7 +153,7 @@ Example for Bicep Curl (tracking left elbow):
 
 ## 📊 Datasets Used to Train BlazePose
 
-BlazePose was trained and evaluated on these datasets (PDF Slide 29):
+BlazePose was trained and evaluated on these datasets :
 
 ### 1. COCO Keypoints 2018
 - **URL:** https://cocodataset.org/#keypoints-2018
@@ -226,7 +226,7 @@ EXERCISES["my_exercise"] = {
 
 ---
 
-## 🔑 Key Challenges & Solutions (PDF Slide 9)
+## 🔑 Key Challenges & Solutions 
 
 | Challenge | Solution |
 |-----------|----------|
