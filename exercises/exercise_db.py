@@ -1,434 +1,365 @@
 """
-exercises.py
-------------
-Database of exercises with:
-  - ideal joint angles  (target_angles)
-  - tolerance per joint (tolerance_deg)
-  - which joints to monitor
-  - rep-counting configuration (which angle oscillates and its thresholds)
-  - correction messages
+exercise_db.py
+--------------
+Exercise database with carefully calibrated angle thresholds.
 
-Each exercise entry follows this schema:
-{
-    "name": str,
-    "muscles": [str],
-    "joints_to_check": [str],          # subset of angle keys
-    "target_angles": {joint: degrees}, # ideal form
-    "tolerance_deg": {joint: degrees}, # acceptable deviation
-    "rep_counter": {
-        "joint": str,                  # angle that oscillates for a rep
-        "up_threshold": float,         # angle considered "up" / contracted
-        "down_threshold": float,       # angle considered "down" / extended
-    },
-    "corrections": {joint: {
-        "too_high": str,
-        "too_low":  str,
-    }},
-    "tips": [str],
-}
+IMPORTANT THRESHOLD GUIDE:
+  For bicep curl (tracking elbow angle):
+    - Standing with arm fully extended = ~160°
+    - Arm fully curled = ~40°
+    - down_threshold = 140  (arm must reach THIS angle to be "down")
+    - up_threshold   = 70   (arm must reach THIS angle to be "up")
+    - Wider gap = easier to count, narrower = stricter
 
-Angle targets derived from:
-  - Google ML-Kit pose classification guide (slide 41)
-  - BlazePose paper (arxiv 2006.10204)
-  - Standard exercise science references
+  If reps NOT counting:
+    - Increase up_threshold (e.g. 70 → 90) so "up" is easier to reach
+    - Decrease down_threshold (e.g. 140 → 120) so "down" is easier to reach
+
+  If reps double counting:
+    - Decrease up_threshold
+    - Increase down_threshold
+    - Increase hysteresis in RepCounter
 """
 
 EXERCISES = {
 
-    # ─────────────────────────────────────────
-    #  BICEP CURL (Dumbbell)
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
+    #  BICEP CURL
+    # ─────────────────────────────────────────────────────────
     "bicep_curl": {
         "name": "Bicep Curl",
         "muscles": ["biceps brachii", "brachialis"],
-        "joints_to_check": ["left_elbow", "right_elbow", "left_shoulder", "right_shoulder", "trunk"],
+        "joints_to_check": ["left_elbow", "right_elbow", "left_shoulder", "trunk"],
         "target_angles": {
-            "left_elbow_down":   160,   # fully extended
-            "left_elbow_up":      40,   # fully contracted
+            "left_elbow_down":   160,
+            "left_elbow_up":      40,
             "right_elbow_down":  160,
             "right_elbow_up":     40,
-            "left_shoulder":      15,   # arm close to body
-            "right_shoulder":     15,
-            "trunk":               5,   # no swinging
+            "left_shoulder":      15,
+            "trunk":               5,
         },
         "tolerance_deg": {
-            "left_elbow":    15,
-            "right_elbow":   15,
-            "left_shoulder": 20,
-            "right_shoulder":20,
-            "trunk":         10,
+            "left_elbow":    20,
+            "right_elbow":   20,
+            "left_shoulder": 25,
+            "trunk":         12,
         },
         "rep_counter": {
-            "joint":          "left_elbow",   # track left elbow
-            "up_threshold":    55,            # curl is "up"
-            "down_threshold": 150,            # arm is "down"
+            "joint":          "left_elbow",
+            "up_threshold":    80,    # elbow angle = "curled up" — increased from 55
+            "down_threshold":  140,   # elbow angle = "extended down" — decreased from 150
         },
         "corrections": {
             "left_elbow": {
-                "too_high": "Extend your left arm more at the bottom",
-                "too_low":  "Curl your left arm higher – full range of motion!",
-            },
-            "right_elbow": {
-                "too_high": "Extend your right arm more at the bottom",
-                "too_low":  "Curl your right arm higher – full range of motion!",
+                "too_high": "Extend your arm more at the bottom",
+                "too_low":  "Curl higher for full range of motion",
             },
             "left_shoulder": {
-                "too_high": "Keep left elbow pinned to your side",
-                "too_low":  "Don't let left shoulder drop too far back",
-            },
-            "right_shoulder": {
-                "too_high": "Keep right elbow pinned to your side",
-                "too_low":  "Don't let right shoulder drop too far back",
+                "too_high": "Keep elbow pinned to your side",
+                "too_low":  "Don't let shoulder drop back",
             },
             "trunk": {
-                "too_high": "Don't swing your back – control the weight",
-                "too_low":  "Stand upright, don't lean backward",
+                "too_high": "Stop swinging your back",
+                "too_low":  "Stand upright",
             },
         },
         "tips": [
-            "Keep your elbows glued to your sides",
-            "Exhale on the way up, inhale on the way down",
-            "Squeeze the bicep at the top of each rep",
+            "Keep elbows glued to your sides",
+            "Squeeze bicep at the top",
+            "Control the weight on the way down",
         ],
     },
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     #  SQUAT
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     "squat": {
         "name": "Squat",
         "muscles": ["quadriceps", "glutes", "hamstrings", "core"],
-        "joints_to_check": ["left_knee", "right_knee", "left_hip", "right_hip", "trunk"],
+        "joints_to_check": ["left_knee", "right_knee", "left_hip", "trunk"],
         "target_angles": {
-            "left_knee_down":   90,    # parallel depth
-            "right_knee_down":  90,
-            "left_knee_up":    170,    # standing
-            "right_knee_up":   170,
+            "left_knee_down":   95,
+            "right_knee_down":  95,
+            "left_knee_up":    165,
+            "right_knee_up":   165,
             "left_hip":         90,
-            "right_hip":        90,
-            "trunk":            10,    # slight forward lean is ok
+            "trunk":            15,
         },
         "tolerance_deg": {
-            "left_knee":  15,
-            "right_knee": 15,
-            "left_hip":   20,
-            "right_hip":  20,
-            "trunk":      15,
+            "left_knee":  20,
+            "right_knee": 20,
+            "left_hip":   25,
+            "trunk":      18,
         },
         "rep_counter": {
             "joint":          "left_knee",
-            "up_threshold":   160,
-            "down_threshold": 110,
+            "up_threshold":   150,   # standing = knee angle large
+            "down_threshold": 120,   # squatting = knee angle small
         },
         "corrections": {
             "left_knee": {
-                "too_high": "Go deeper – aim for parallel or below",
-                "too_low":  "Don't let knees cave or go too far in",
-            },
-            "right_knee": {
-                "too_high": "Go deeper on your right side",
-                "too_low":  "Watch right knee alignment",
-            },
-            "left_hip": {
-                "too_high": "Sit your hips back more",
-                "too_low":  "Don't lean too far forward",
+                "too_high": "Go deeper — aim for parallel",
+                "too_low":  "Knees caving — push them out",
             },
             "trunk": {
-                "too_high": "Keep chest up – don't lean too far forward",
-                "too_low":  "Slight forward lean is normal",
+                "too_high": "Keep chest up — don't lean forward",
+                "too_low":  "Slight lean is normal",
             },
         },
         "tips": [
-            "Feet shoulder-width apart, toes slightly out",
-            "Push your knees out over your toes",
-            "Drive through your heels to stand up",
-            "Keep your chest tall throughout the movement",
+            "Feet shoulder-width apart",
+            "Push knees out over toes",
+            "Drive through heels to stand",
         ],
     },
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     #  PUSH-UP
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     "push_up": {
         "name": "Push-Up",
         "muscles": ["pectorals", "triceps", "anterior deltoid", "core"],
-        "joints_to_check": ["left_elbow", "right_elbow", "left_shoulder", "right_shoulder", "trunk"],
-        "target_angles": {
-            "left_elbow_down":   90,   # bottom of push-up
-            "right_elbow_down":  90,
-            "left_elbow_up":    160,   # top (arms not locked)
-            "right_elbow_up":   160,
-            "left_shoulder":     45,
-            "right_shoulder":    45,
-            "trunk":              5,   # plank-straight body
-        },
-        "tolerance_deg": {
-            "left_elbow":    15,
-            "right_elbow":   15,
-            "left_shoulder": 20,
-            "right_shoulder":20,
-            "trunk":          8,
-        },
-        "rep_counter": {
-            "joint":          "left_elbow",
-            "up_threshold":   150,
-            "down_threshold": 105,
-        },
-        "corrections": {
-            "left_elbow": {
-                "too_high": "Lower your chest closer to the floor",
-                "too_low":  "Don't lock out your elbows at the top",
-            },
-            "right_elbow": {
-                "too_high": "Lower your chest closer to the floor",
-                "too_low":  "Don't lock out your elbows",
-            },
-            "trunk": {
-                "too_high": "Hips are sagging – engage your core!",
-                "too_low":  "Hips too high – lower into a straight plank",
-            },
-        },
-        "tips": [
-            "Keep your body in a straight line from head to heels",
-            "Elbows at ~45° from your torso, not flared wide",
-            "Breathe in on the way down, out on the way up",
-        ],
-    },
-
-    # ─────────────────────────────────────────
-    #  SHOULDER PRESS
-    # ─────────────────────────────────────────
-    "shoulder_press": {
-        "name": "Shoulder Press",
-        "muscles": ["deltoids", "triceps", "trapezius"],
-        "joints_to_check": ["left_elbow", "right_elbow", "left_shoulder", "right_shoulder", "trunk"],
+        "joints_to_check": ["left_elbow", "right_elbow", "trunk"],
         "target_angles": {
             "left_elbow_down":   90,
             "right_elbow_down":  90,
-            "left_elbow_up":    170,
-            "right_elbow_up":   170,
-            "left_shoulder":     90,
-            "right_shoulder":    90,
-            "trunk":              5,
+            "left_elbow_up":    155,
+            "right_elbow_up":   155,
+            "trunk":               5,
         },
         "tolerance_deg": {
-            "left_elbow":    15,
-            "right_elbow":   15,
-            "left_shoulder": 20,
-            "right_shoulder":20,
+            "left_elbow":    20,
+            "right_elbow":   20,
             "trunk":         10,
         },
         "rep_counter": {
             "joint":          "left_elbow",
-            "up_threshold":   155,
-            "down_threshold":  100,
+            "up_threshold":   140,   # arms extended = up
+            "down_threshold": 110,   # chest to floor = down
+        },
+        "corrections": {
+            "left_elbow": {
+                "too_high": "Lower chest closer to floor",
+                "too_low":  "Don't lock elbows at top",
+            },
+            "trunk": {
+                "too_high": "Hips sagging — engage your core",
+                "too_low":  "Hips too high — lower into plank",
+            },
+        },
+        "tips": [
+            "Body straight from head to heels",
+            "Elbows at 45° from torso",
+            "Breathe in down, out up",
+        ],
+    },
+
+    # ─────────────────────────────────────────────────────────
+    #  SHOULDER PRESS
+    # ─────────────────────────────────────────────────────────
+    "shoulder_press": {
+        "name": "Shoulder Press",
+        "muscles": ["deltoids", "triceps", "trapezius"],
+        "joints_to_check": ["left_elbow", "right_elbow", "trunk"],
+        "target_angles": {
+            "left_elbow_down":   90,
+            "right_elbow_down":  90,
+            "left_elbow_up":    165,
+            "right_elbow_up":   165,
+            "trunk":               5,
+        },
+        "tolerance_deg": {
+            "left_elbow":    20,
+            "right_elbow":   20,
+            "trunk":         12,
+        },
+        "rep_counter": {
+            "joint":          "left_elbow",
+            "up_threshold":   150,   # arms up overhead
+            "down_threshold": 105,   # weights at ear level
         },
         "corrections": {
             "left_elbow": {
                 "too_high": "Bring weights down to ear level",
                 "too_low":  "Fully extend arms overhead",
             },
-            "right_elbow": {
-                "too_high": "Bring weights down to ear level",
-                "too_low":  "Fully extend arms overhead",
-            },
             "trunk": {
-                "too_high": "Don't arch your lower back – brace your core",
-                "too_low":  "Stand tall – slight lean is ok",
+                "too_high": "Don't arch lower back — brace core",
+                "too_low":  "Stand tall",
             },
         },
         "tips": [
             "Start with elbows at 90° at shoulder height",
-            "Don't arch your back – tighten your core",
-            "Press directly overhead, not forward",
+            "Press directly overhead",
+            "Don't arch your back",
         ],
     },
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     #  LATERAL RAISE
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     "lateral_raise": {
         "name": "Lateral Raise",
         "muscles": ["medial deltoid"],
         "joints_to_check": ["left_shoulder", "right_shoulder", "trunk"],
         "target_angles": {
-            "left_shoulder_up":   90,
-            "right_shoulder_up":  90,
-            "left_shoulder_down": 10,
-            "right_shoulder_down":10,
-            "trunk":               5,
+            "left_shoulder_up":    85,
+            "right_shoulder_up":   85,
+            "left_shoulder_down":  15,
+            "right_shoulder_down": 15,
+            "trunk":                5,
         },
         "tolerance_deg": {
-            "left_shoulder":  15,
-            "right_shoulder": 15,
-            "trunk":          10,
+            "left_shoulder":  20,
+            "right_shoulder": 20,
+            "trunk":          12,
         },
         "rep_counter": {
             "joint":          "left_shoulder",
-            "up_threshold":   75,
-            "down_threshold": 30,
+            "up_threshold":   65,    # arms raised
+            "down_threshold": 35,    # arms lowered
         },
         "corrections": {
             "left_shoulder": {
-                "too_high": "Don't raise above shoulder height – risk of impingement",
-                "too_low":  "Raise arms to shoulder level (90°)",
-            },
-            "right_shoulder": {
                 "too_high": "Don't raise above shoulder height",
                 "too_low":  "Raise arms to shoulder level",
             },
             "trunk": {
-                "too_high": "Stop swinging – lighter weight or slower tempo",
+                "too_high": "Stop swinging — use lighter weight",
                 "too_low":  "Stand straight",
             },
         },
         "tips": [
-            "Lead with your elbows, not your wrists",
-            "Slight bend in the elbow is fine",
-            "Go light – this isolates a small muscle",
+            "Lead with elbows not wrists",
+            "Slight bend in elbow is fine",
+            "Go light — small muscle",
         ],
     },
 
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     #  DEADLIFT
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
     "deadlift": {
         "name": "Deadlift",
         "muscles": ["hamstrings", "glutes", "lower back", "traps"],
-        "joints_to_check": ["left_hip", "right_hip", "left_knee", "right_knee", "trunk"],
+        "joints_to_check": ["left_hip", "right_hip", "left_knee", "trunk"],
         "target_angles": {
-            "left_hip_down":   45,
-            "right_hip_down":  45,
-            "left_hip_up":    170,
-            "right_hip_up":   170,
-            "left_knee":      160,   # slight bend throughout
-            "right_knee":     160,
-            "trunk":           10,   # neutral spine
+            "left_hip_down":   50,
+            "right_hip_down":  50,
+            "left_hip_up":    165,
+            "right_hip_up":   165,
+            "left_knee":      155,
+            "trunk":           10,
         },
         "tolerance_deg": {
-            "left_hip":   15,
-            "right_hip":  15,
+            "left_hip":   20,
+            "right_hip":  20,
+            "left_knee":  25,
+            "trunk":      15,
+        },
+        "rep_counter": {
+            "joint":          "left_hip",
+            "up_threshold":   150,   # standing upright
+            "down_threshold":  90,   # hinging forward
+        },
+        "corrections": {
+            "left_hip": {
+                "too_high": "Hinge deeper at hip — push hips back",
+                "too_low":  "Don't round lower back",
+            },
+            "trunk": {
+                "too_high": "CRITICAL: Straighten your back!",
+                "too_low":  "Keep neutral spine",
+            },
+        },
+        "tips": [
+            "Neutral spine throughout",
+            "Bar close to your body",
+            "Push floor away — don't pull weight up",
+        ],
+    },
+
+    # ─────────────────────────────────────────────────────────
+    #  LUNGE
+    # ─────────────────────────────────────────────────────────
+    "lunge": {
+        "name": "Lunge",
+        "muscles": ["quadriceps", "glutes", "hamstrings"],
+        "joints_to_check": ["left_knee", "right_knee", "trunk"],
+        "target_angles": {
+            "left_knee_down":   95,
+            "right_knee_down":  95,
+            "left_knee_up":    165,
+            "right_knee_up":   165,
+            "trunk":             5,
+        },
+        "tolerance_deg": {
             "left_knee":  20,
             "right_knee": 20,
             "trunk":      12,
         },
         "rep_counter": {
-            "joint":          "left_hip",
-            "up_threshold":   155,
-            "down_threshold":  80,
-        },
-        "corrections": {
-            "left_hip": {
-                "too_high": "Hinge deeper at the hip – push hips back",
-                "too_low":  "Don't round your lower back – hip angle too acute",
-            },
-            "trunk": {
-                "too_high": "CRITICAL: Straighten your back immediately!",
-                "too_low":  "Keep a neutral spine – don't hyperextend",
-            },
-            "left_knee": {
-                "too_high": "Keep a slight bend in your knees",
-                "too_low":  "Don't squat the deadlift – hinge at the hip",
-            },
-        },
-        "tips": [
-            "Neutral spine throughout – no rounding!",
-            "Bar (or weights) close to your body",
-            "Push the floor away, don't pull the weight up",
-            "Squeeze glutes at the top",
-        ],
-    },
-
-    # ─────────────────────────────────────────
-    #  LUNGE
-    # ─────────────────────────────────────────
-    "lunge": {
-        "name": "Lunge",
-        "muscles": ["quadriceps", "glutes", "hamstrings"],
-        "joints_to_check": ["left_knee", "right_knee", "left_hip", "trunk"],
-        "target_angles": {
-            "left_knee_down":   90,
-            "right_knee_down":  90,
-            "left_knee_up":    170,
-            "right_knee_up":   170,
-            "left_hip":         90,
-            "trunk":             5,
-        },
-        "tolerance_deg": {
-            "left_knee":  15,
-            "right_knee": 15,
-            "left_hip":   20,
-            "trunk":      10,
-        },
-        "rep_counter": {
             "joint":          "left_knee",
-            "up_threshold":   155,
-            "down_threshold": 110,
+            "up_threshold":   150,
+            "down_threshold": 115,
         },
         "corrections": {
             "left_knee": {
-                "too_high": "Step further forward – front knee at 90°",
-                "too_low":  "Front knee shouldn't go past your toes",
-            },
-            "right_knee": {
-                "too_high": "Lower your back knee closer to the floor",
-                "too_low":  "Back knee too close to floor – control the descent",
+                "too_high": "Step further — front knee at 90°",
+                "too_low":  "Front knee past toes — step further",
             },
             "trunk": {
-                "too_high": "Keep your torso upright",
+                "too_high": "Keep torso upright",
                 "too_low":  "Don't lean too far forward",
             },
         },
         "tips": [
-            "Keep front knee directly over your ankle",
-            "Back knee hovers just above the floor",
-            "Step far enough that both knees reach 90°",
+            "Front knee directly over ankle",
+            "Back knee hovers above floor",
+            "Both knees reach 90°",
         ],
     },
 
-    # ─────────────────────────────────────────
-    #  PLANK (static – checks form only)
-    # ─────────────────────────────────────────
+    # ─────────────────────────────────────────────────────────
+    #  PLANK (timed — no rep counting)
+    # ─────────────────────────────────────────────────────────
     "plank": {
         "name": "Plank",
         "muscles": ["core", "shoulders", "glutes"],
-        "joints_to_check": ["left_elbow", "right_elbow", "trunk", "left_hip", "right_hip"],
+        "joints_to_check": ["left_elbow", "right_elbow", "trunk", "left_hip"],
         "target_angles": {
             "left_elbow":   90,
             "right_elbow":  90,
-            "trunk":         5,
-            "left_hip":    175,
-            "right_hip":   175,
+            "trunk":          5,
+            "left_hip":     175,
         },
         "tolerance_deg": {
             "left_elbow":  15,
             "right_elbow": 15,
             "trunk":        8,
-            "left_hip":    10,
-            "right_hip":   10,
+            "left_hip":    12,
         },
-        "rep_counter": None,   # timed hold – no rep counting
+        "rep_counter": None,
         "corrections": {
             "trunk": {
-                "too_high": "Hips sagging – lift your hips and brace core",
-                "too_low":  "Hips too high – lower into a straight line",
+                "too_high": "Hips sagging — lift hips and brace core",
+                "too_low":  "Hips too high — lower into straight line",
             },
             "left_hip": {
-                "too_high": "Keep hips in line with your body",
-                "too_low":  "Don't piked your hips up",
+                "too_high": "Keep hips in line with body",
+                "too_low":  "Don't pike hips up",
             },
         },
         "tips": [
-            "Squeeze every muscle: glutes, abs, quads",
-            "Breathe steadily – don't hold your breath",
-            "Gaze at the floor slightly in front of hands",
+            "Squeeze glutes abs and quads",
+            "Breathe steadily",
+            "Gaze at floor slightly ahead",
         ],
     },
 }
 
 
 def get_exercise(name: str):
-    """Returns exercise config dict or None."""
     return EXERCISES.get(name)
 
 
